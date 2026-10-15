@@ -3,6 +3,67 @@ document.addEventListener("DOMContentLoaded", () => {
   const activitySelect = document.getElementById("activity");
   const signupForm = document.getElementById("signup-form");
   const messageDiv = document.getElementById("message");
+  const activityCards = new Map();
+
+  function updateActivityCounts(activityCard, details) {
+    const participantCount = activityCard.querySelector(".participants-list").children.length;
+    activityCard.querySelector(".participants-count").textContent = participantCount;
+    activityCard.querySelector(".availability-count").textContent =
+      details.max_participants - participantCount;
+  }
+
+  function addParticipantToCard(name, email, details, activityCard) {
+    const participantsList = activityCard.querySelector(".participants-list");
+    const participant = document.createElement("li");
+    participant.className = "participant-item";
+    participant.dataset.email = email;
+
+    const participantEmail = document.createElement("span");
+    participantEmail.className = "participant-email";
+    participantEmail.textContent = email;
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "remove-participant";
+    removeButton.setAttribute("aria-label", `Unregister ${email} from ${name}`);
+    removeButton.title = "Unregister participant";
+    removeButton.innerHTML = `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14M10 10v6m4-6v6" />
+      </svg>
+    `;
+    removeButton.addEventListener("click", async () => {
+      removeButton.disabled = true;
+
+      try {
+        const response = await fetch(
+          `/activities/${encodeURIComponent(name)}/signup?email=${encodeURIComponent(email)}`,
+          { method: "DELETE" }
+        );
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.detail || "Could not unregister participant");
+        }
+
+        participantsList.querySelectorAll(".participant-item").forEach((item) => {
+          if (item.dataset.email === email) {
+            item.remove();
+          }
+        });
+        updateActivityCounts(activityCard, details);
+      } catch (error) {
+        removeButton.disabled = false;
+        messageDiv.textContent = error.message;
+        messageDiv.className = "error";
+        messageDiv.classList.remove("hidden");
+      }
+    });
+
+    participant.append(participantEmail, removeButton);
+    participantsList.appendChild(participant);
+    updateActivityCounts(activityCard, details);
+  }
 
   // Function to fetch activities from API
   async function fetchActivities() {
@@ -24,10 +85,19 @@ document.addEventListener("DOMContentLoaded", () => {
           <h4>${name}</h4>
           <p>${details.description}</p>
           <p><strong>Schedule:</strong> ${details.schedule}</p>
-          <p><strong>Availability:</strong> ${spotsLeft} spots left</p>
+          <p class="availability"><strong>Availability:</strong> <span class="availability-count">${spotsLeft}</span> spots left</p>
+          <div class="participants-section">
+            <h5>Participants (<span class="participants-count">${details.participants.length}</span>)</h5>
+            <ul class="participants-list"></ul>
+          </div>
         `;
 
+        details.participants.forEach((email) => {
+          addParticipantToCard(name, email, details, activityCard);
+        });
+
         activitiesList.appendChild(activityCard);
+        activityCards.set(name, { activityCard, details });
 
         // Add option to select dropdown
         const option = document.createElement("option");
@@ -61,6 +131,10 @@ document.addEventListener("DOMContentLoaded", () => {
       if (response.ok) {
         messageDiv.textContent = result.message;
         messageDiv.className = "success";
+        const activityView = activityCards.get(activity);
+        if (activityView) {
+          addParticipantToCard(activity, email, activityView.details, activityView.activityCard);
+        }
         signupForm.reset();
       } else {
         messageDiv.textContent = result.detail || "An error occurred";
